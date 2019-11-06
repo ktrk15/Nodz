@@ -336,7 +336,7 @@ class Nodz(QtWidgets.QGraphicsView):
         self.rubberband.hide()
         return painterPath
 
-    def _focus(self):
+    def _focus(self, padding=50):
         """
         Center on selected nodes or all of them if no active selection.
 
@@ -346,6 +346,18 @@ class Nodz(QtWidgets.QGraphicsView):
             self.fitInView(itemsArea, QtCore.Qt.KeepAspectRatio)
         else:
             itemsArea = self.scene().itemsBoundingRect()
+            frame_width = self.frameGeometry().width()
+            frame_height = self.frameGeometry().height()
+            if itemsArea.width() / itemsArea.height() < frame_width / frame_height:
+                x_pad = (frame_width - itemsArea.width() * frame_height / itemsArea.height()) / 2
+                y_pad = 0
+            else:
+                x_pad = 0
+                y_pad = (frame_height - itemsArea.height() * frame_width / itemsArea.width()) / 2
+            itemsArea.setX(itemsArea.x() - padding - x_pad)
+            itemsArea.setY(itemsArea.y() - padding - y_pad - self.config['node_font_size'])
+            itemsArea.setWidth(itemsArea.width() + padding + x_pad * 2)
+            itemsArea.setHeight(itemsArea.height() + padding + y_pad * 2)
             self.fitInView(itemsArea, QtCore.Qt.KeepAspectRatio)
 
     def _getSelectionBoundingbox(self):
@@ -477,7 +489,7 @@ class Nodz(QtWidgets.QGraphicsView):
 
 
     # NODES
-    def createNode(self, name='default', preset='node_default', position=None, alternate=True):
+    def createNode(self, name='default', preset='node_default', position=None, alternate=True, pil_image=None):
         """
         Create a new node with a given name, position and color.
 
@@ -507,7 +519,7 @@ class Nodz(QtWidgets.QGraphicsView):
             return
         else:
             nodeItem = NodeItem(name=name, alternate=alternate, preset=preset,
-                                config=self.config)
+                                config=self.config, pil_image=pil_image)
 
             # Store node in scene.
             self.scene().nodes[name] = nodeItem
@@ -1067,7 +1079,7 @@ class NodeItem(QtWidgets.QGraphicsItem):
 
     """
 
-    def __init__(self, name, alternate, preset, config):
+    def __init__(self, name, alternate, preset, config, pil_image):
         """
         Initialize the class.
 
@@ -1105,6 +1117,11 @@ class NodeItem(QtWidgets.QGraphicsItem):
 
         # Methods.
         self._createStyle(config)
+
+        self.image = None
+        if pil_image is not None:
+            from PIL.ImageQt import ImageQt
+            self.image = QtGui.QPixmap.fromImage(ImageQt(pil_image))
 
     @property
     def height(self):
@@ -1428,6 +1445,12 @@ class NodeItem(QtWidgets.QGraphicsItem):
 
             offset += self.attrHeight
 
+        if self.image is not None:
+            img = self.image.scaled(self.baseWidth - self.border * 2, self.height - self.border * 2, QtCore.Qt.KeepAspectRatio)
+            x = (self.baseWidth - img.width()) / 2
+            y = (self.height - img.height()) / 2
+            painter.drawPixmap(x, y, img)
+
     def mousePressEvent(self, event):
         """
         Keep the selected node on top of the others.
@@ -1543,6 +1566,8 @@ class SlotItem(QtWidgets.QGraphicsItem):
 
         self.pen = QtGui.QPen()
         self.pen.setStyle(QtCore.Qt.SolidLine)
+
+        self.setFlag(SlotItem.ItemStacksBehindParent)
 
         # Connections storage.
         self.connected_slots = list()
@@ -1692,7 +1717,7 @@ class SlotItem(QtWidgets.QGraphicsItem):
                     painter.setPen(_penValid)
                     painter.setBrush(self.brush)
 
-        painter.drawEllipse(self.boundingRect())
+        painter.drawEllipse(self.boundingRectForPaint())
 
     def center(self):
         """
@@ -1758,15 +1783,29 @@ class PlugItem(SlotItem):
         The bounding rect based on the width and height variables.
 
         """
-        width = height = self.parentItem().attrHeight / 2.0
+        width = height = self.parentItem().baseWidth / 2.0
 
         nodzInst = self.scene().views()[0]
         config = nodzInst.config
 
-        x = self.parentItem().baseWidth - (width / 2.0)
-        y = (self.parentItem().baseHeight - config['node_radius'] +
-             self.parentItem().attrHeight / 4 +
-             self.parentItem().attrs.index(self.attribute) * self.parentItem().attrHeight)
+        x = (self.parentItem().baseWidth - width) / 2.
+        y = self.parentItem().height - (height / 2.0)
+
+        rect = QtCore.QRectF(QtCore.QRect(x, y, width, height))
+        return rect
+
+    def boundingRectForPaint(self):
+        """
+        The bounding rect based on the width and height variables.
+
+        """
+        width = height = self.parentItem().baseWidth / 10.0
+
+        nodzInst = self.scene().views()[0]
+        config = nodzInst.config
+
+        x = (self.parentItem().baseWidth - width) / 2.
+        y = self.parentItem().height - (height / 2.0)
 
         rect = QtCore.QRectF(QtCore.QRect(x, y, width, height))
         return rect
@@ -1866,15 +1905,29 @@ class SocketItem(SlotItem):
         The bounding rect based on the width and height variables.
 
         """
-        width = height = self.parentItem().attrHeight / 2.0
+        width = height = self.parentItem().baseWidth / 2.0
 
         nodzInst = self.scene().views()[0]
         config = nodzInst.config
 
-        x = - width / 2.0
-        y = (self.parentItem().baseHeight - config['node_radius'] +
-            (self.parentItem().attrHeight/4) +
-             self.parentItem().attrs.index(self.attribute) * self.parentItem().attrHeight )
+        x = (self.parentItem().baseWidth - width) / 2.
+        y = - height / 2.0
+
+        rect = QtCore.QRectF(QtCore.QRect(x, y, width, height))
+        return rect
+
+    def boundingRectForPaint(self):
+        """
+        The bounding rect based on the width and height variables.
+
+        """
+        width = height = self.parentItem().baseWidth / 10.0
+
+        nodzInst = self.scene().views()[0]
+        config = nodzInst.config
+
+        x = (self.parentItem().baseWidth - width) / 2.
+        y = - height / 2.0
 
         rect = QtCore.QRectF(QtCore.QRect(x, y, width, height))
         return rect
